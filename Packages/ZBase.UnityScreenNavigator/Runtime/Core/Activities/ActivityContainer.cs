@@ -242,7 +242,11 @@ namespace ZBase.UnityScreenNavigator.Core.Activities
             }
 
             _activities.Clear();
-            s_instancesCachedByName.Remove(LayerName);
+            
+            if (!string.IsNullOrEmpty(LayerName))
+            {
+                s_instancesCachedByName.Remove(LayerName);
+            }
 
             using var keysToRemove = new PooledList<int>(s_instancesCachedByTransformId.Count);
 

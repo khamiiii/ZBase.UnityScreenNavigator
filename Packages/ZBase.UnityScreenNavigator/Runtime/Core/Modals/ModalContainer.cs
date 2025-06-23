@@ -85,7 +85,10 @@ namespace ZBase.UnityScreenNavigator.Core.Modals
 
             backdrops.Clear();
 
-            s_instancesCachedByName.Remove(LayerName);
+            if (!string.IsNullOrEmpty(LayerName))
+            {
+                s_instancesCachedByName.Remove(LayerName);
+            }
 
             using var keysToRemove = new PooledList<int>(s_instancesCachedByTransformId.Count);
 

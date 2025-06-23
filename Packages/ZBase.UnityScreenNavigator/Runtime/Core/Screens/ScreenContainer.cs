@@ -65,7 +65,11 @@ namespace ZBase.UnityScreenNavigator.Core.Screens
             }
 
             screens.Clear();
-            s_instancesCacheByName.Remove(LayerName);
+            
+            if (!string.IsNullOrEmpty(LayerName))
+            {
+                s_instancesCacheByName.Remove(LayerName);
+            }
 
             using var keysToRemove = new PooledList<int>(s_instancesCacheByTransformId.Count);
 

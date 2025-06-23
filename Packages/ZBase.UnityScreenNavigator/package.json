@@ -1,8 +1,8 @@
 {
   "name": "com.zbase.unityscreennavigator",
   "displayName": "ZBase.UnityScreenNavigator",
-  "version": "1.6.9",
-  "unity": "2021.3",
+  "version": "1.7.0",
+  "unity": "2022.3",
   "license": "MIT",
   "author": {
     "name": "Haruki Yano",
