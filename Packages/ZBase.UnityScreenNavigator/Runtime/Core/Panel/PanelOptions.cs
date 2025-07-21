@@ -6,15 +6,18 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
     {
         public readonly bool stack;
         public readonly ViewOptions options;
+        public readonly string identifier;
 
-        public PanelOptions(in ViewOptions options, bool stack = true)
+        public PanelOptions(in ViewOptions options, string identifier, bool stack = true)
         {
             this.options = options;
             this.stack = stack;
+            this.identifier = identifier;
         }
         
         public PanelOptions(
             string resourcePath
+            , string identifier
             , bool playAnimation = true
             , OnViewLoadedCallback onLoaded = null
             , bool loadAsync = true
@@ -24,14 +27,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
             this.options = new(resourcePath, playAnimation, onLoaded, loadAsync, poolingPolicy);
             this.stack = stack;
+            this.identifier = identifier;
         }
         
-        public static implicit operator PanelOptions(in ViewOptions options)
-            => new(options);
-
-        public static implicit operator PanelOptions(string resourcePath)
-            => new(new ViewOptions(resourcePath));
-
         public static implicit operator ViewOptions(in PanelOptions options)
             => options.options;
     }

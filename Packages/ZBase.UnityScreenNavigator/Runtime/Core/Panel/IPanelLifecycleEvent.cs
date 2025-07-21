@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 
 namespace ZBase.UnityScreenNavigator.Core.Panel
@@ -9,13 +10,13 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// Called just after this panel is loaded.
         /// </summary>
         /// <returns></returns>
-        UniTask Initialize(Memory<object> args);
+        UniTask Initialize(Memory<object> args, CancellationToken ct);
 
         /// <summary>
         /// Called just before this panel is displayed by the Push transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPushEnter(Memory<object> args);
+        UniTask WillPushEnter(Memory<object> args, CancellationToken ct);
 
         /// <summary>
         /// Called just after this panel is displayed by the Push transition.
@@ -26,7 +27,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// Called just before this panel is hidden by the Push transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPushExit(Memory<object> args);
+        UniTask WillPushExit(Memory<object> args, CancellationToken ct);
 
         /// <summary>
         /// Called just after this panel is hidden by the Push transition.
@@ -37,7 +38,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// Called just before this panel is displayed by the Pop transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPopEnter(Memory<object> args);
+        UniTask WillPopEnter(Memory<object> args, CancellationToken ct);
 
         /// <summary>
         /// Called just after this panel is displayed by the Pop transition.
@@ -48,7 +49,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// Called just before this panel is hidden by the Pop transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPopExit(Memory<object> args);
+        UniTask WillPopExit(Memory<object> args, CancellationToken ct);
 
         /// <summary>
         /// Called just after this panel is hidden by the Pop transition.
@@ -59,6 +60,6 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// Called just before this panel is released.
         /// </summary>
         /// <returns></returns>
-        UniTask Cleanup(Memory<object> args);
+        UniTask Cleanup(Memory<object> args, CancellationToken ct);
     }
 }

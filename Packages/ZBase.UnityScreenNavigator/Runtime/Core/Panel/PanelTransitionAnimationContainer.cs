@@ -9,6 +9,7 @@ using Object = UnityEngine.Object;
 
 namespace ZBase.UnityScreenNavigator.Core.Panel
 {
+    [Serializable]
     public class PanelTransitionAnimationContainer
     {
         [SerializeField] private List<TransitionAnimation> _pushEnterAnimations = new();

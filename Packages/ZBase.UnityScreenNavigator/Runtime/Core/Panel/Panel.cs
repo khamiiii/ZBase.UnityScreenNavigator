@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using ZBase.UnityScreenNavigator.Core.Views;
@@ -46,12 +47,12 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         public event Action<float> TransitionAnimationProgressChanged;
         
-        public UniTask Initialize(Memory<object> args)
+        public UniTask Initialize(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
 
-        public UniTask WillPushEnter(Memory<object> args)
+        public UniTask WillPushEnter(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
@@ -60,7 +61,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
         }
 
-        public UniTask WillPushExit(Memory<object> args)
+        public UniTask WillPushExit(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
@@ -69,7 +70,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
         }
 
-        public UniTask WillPopEnter(Memory<object> args)
+        public UniTask WillPopEnter(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
@@ -78,7 +79,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
         }
 
-        public UniTask WillPopExit(Memory<object> args)
+        public UniTask WillPopExit(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
@@ -87,7 +88,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
         }
 
-        public UniTask Cleanup(Memory<object> args)
+        public UniTask Cleanup(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
@@ -102,7 +103,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             _lifecycleEvents.Remove(lifecycleEvent);
         }
 
-        internal async UniTask AfterLoadAsync(RectTransform parentTransform, Memory<object> args)
+        internal async UniTask AfterLoadAsync(RectTransform parentTransform, Memory<object> args, CancellationToken ct)
         {
             _lifecycleEvents.Add(this, 0);
             SetIdentifer();
@@ -131,11 +132,11 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             RectTransform.SetSiblingIndex(siblingIndex);
             Alpha = 0.0f;
 
-            var tasks = _lifecycleEvents.Select(x => x.Initialize(args));
+            var tasks = _lifecycleEvents.Select(x => x.Initialize(args, ct));
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask BeforeEnterAsync(bool push, Memory<object> args)
+        internal async UniTask BeforeEnterAsync(bool push, Memory<object> args, CancellationToken ct)
         {
             IsTransitioning = true;
             TransitionAnimationType = push ? PanelTransitionAnimationType.PushEnter : PanelTransitionAnimationType.PopEnter;
@@ -146,13 +147,13 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             Alpha = 0.0f;
 
             var tasks = push
-                ? _lifecycleEvents.Select(x => x.WillPushEnter(args))
-                : _lifecycleEvents.Select(x => x.WillPopEnter(args));
+                ? _lifecycleEvents.Select(x => x.WillPushEnter(args, ct))
+                : _lifecycleEvents.Select(x => x.WillPopEnter(args, ct));
             
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask<StubEnter> EnterAsync(bool push, bool playAnimation, Panel partnerPanel)
+        internal async UniTask<StubEnter> EnterAsync(bool push, bool playAnimation, Panel partnerPanel, CancellationToken ct)
         {
             Alpha = 1.0f;
 
@@ -167,7 +168,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
                 anim.Setup(RectTransform);
 
-                await anim.PlayAsync(TransitionProgressReporter);
+                await anim.PlayAsync(TransitionProgressReporter, ct);
             }
 
             RectTransform.FillParent(Parent);
@@ -196,7 +197,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             TransitionAnimationType = null;
         }
 
-        internal async UniTask BeforeExitAsync(bool push, Memory<object> args)
+        internal async UniTask BeforeExitAsync(bool push, Memory<object> args, CancellationToken ct)
         {
             IsTransitioning = true;
             TransitionAnimationType = push
@@ -210,13 +211,13 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             Alpha = 1.0f;
 
             var tasks = push
-                ? _lifecycleEvents.Select(x => x.WillPushExit(args))
-                : _lifecycleEvents.Select(x => x.WillPopExit(args));
+                ? _lifecycleEvents.Select(x => x.WillPushExit(args, ct))
+                : _lifecycleEvents.Select(x => x.WillPopExit(args, ct));
 
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask<StubExit> ExitAsync(bool push, bool playAnimation, Panel partnerPanel)
+        internal async UniTask<StubExit> ExitAsync(bool push, bool playAnimation, Panel partnerPanel, CancellationToken ct)
         {
             if (playAnimation)
             {
@@ -229,7 +230,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
                 anim.Setup(RectTransform);
 
-                await anim.PlayAsync(TransitionProgressReporter);
+                await anim.PlayAsync(TransitionProgressReporter, ct);
             }
             
             Alpha = 0.0f;
@@ -259,9 +260,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             TransitionAnimationType = null;
         }
 
-        internal async UniTask BeforeReleaseAsync(Memory<object> args)
+        internal async UniTask BeforeReleaseAsync(Memory<object> args, CancellationToken ct)
         {
-            var tasks = _lifecycleEvents.Select(x => x.Cleanup(args));
+            var tasks = _lifecycleEvents.Select(x => x.Cleanup(args, ct));
             await WaitForAsync(tasks);
         }
 

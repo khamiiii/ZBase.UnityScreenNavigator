@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using ZBase.UnityScreenNavigator.Core.Controls;
 using ZBase.UnityScreenNavigator.Foundation;
+using Debug = UnityEngine.Debug;
 
 namespace ZBase.UnityScreenNavigator.Core.Panel
 {
@@ -27,7 +29,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         public IReadOnlyList<ViewRef<Panel>> Panels => _panels;
 
-        public ViewRef<Panel> Current => _panels[^1];
+        public ViewRef<Panel> Current => _panels.Count > 0 ? _panels[^1] : default;
+
+        private CancellationTokenSource _transitionCts;
 
         protected override void Awake()
         {
@@ -74,7 +78,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
             foreach (var sheetRef in sheets)
             {
-                await sheetRef.View.BeforeReleaseAsync(args);
+                await sheetRef.View.BeforeReleaseAsync(args, default);
                 DestroyAndForget(sheetRef);
             }
 
@@ -238,6 +242,12 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
         private async UniTask BringToFrontAsyncInternal(PanelOptions options, bool ignoreFront, Memory<object> args)
         {
+            CancelTransition();
+            await BringToFrontAsyncInternal(options, ignoreFront, args, this._transitionCts.Token);
+        }
+        
+        private async UniTask BringToFrontAsyncInternal(PanelOptions options, bool ignoreFront, Memory<object> args, CancellationToken ct)
+        {
             var resourcePath = options.options.resourcePath;
 
             if (resourcePath == null)
@@ -267,7 +277,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
             options.options.onLoaded?.Invoke(enterPanel, args);
 
-            await enterPanel.AfterLoadAsync(RectTransform, args);
+            await enterPanel.AfterLoadAsync(RectTransform, args, ct);
 
             ViewRef<Panel>? exitPanelRef = _panels.Count == 0 ? null : _panels[^1];
             Panel exitPanel = exitPanelRef.HasValue ? exitPanelRef.Value.View : null;
@@ -286,17 +296,17 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
             if (exitPanel)
             {
-                await exitPanel.BeforeExitAsync(true, args);
+                await exitPanel.BeforeExitAsync(true, args, ct);
             }
 
-            await enterPanel.BeforeEnterAsync(true, args);
+            await enterPanel.BeforeEnterAsync(true, args, ct);
 
             // Play Animations
             var animExit = exitPanel
-                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel)
+                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel, ct)
                 : default;
 
-            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel);
+            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel, ct);
 
             await UniTask.WhenAll(animExit, animEnter);
 
@@ -325,7 +335,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             // Unload unused Panel
             if (_isActivePanelStacked == false && exitPanelRef.HasValue)
             {
-                await exitPanel.BeforeReleaseAsync(args);
+                await exitPanel.BeforeReleaseAsync(args, ct);
 
                 DestroyAndForget(exitPanelRef.Value);
             }
@@ -430,10 +440,18 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         private async UniTaskVoid PushAndForget<TPanel>(PanelOptions options, Memory<object> args)
             where TPanel : Panel
         {
-            await PushAsyncInternal<Panel>(options, args);
+            CancelTransition();
+            await PushAsyncInternal<TPanel>(options, args, this._transitionCts.Token);
         }
 
         private async UniTask PushAsyncInternal<TPanel>(PanelOptions options, Memory<object> args)
+            where TPanel : Panel
+        {
+            CancelTransition();
+            await PushAsyncInternal<TPanel>(options, args, this._transitionCts.Token);
+        }
+        
+        private async UniTask PushAsyncInternal<TPanel>(PanelOptions options, Memory<object> args, CancellationToken ct)
             where TPanel : Panel
         {
             var resourcePath = options.options.resourcePath;
@@ -457,9 +475,11 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             }
 
             var enterPanel = await GetViewAsync<TPanel>(options.options);
+            //Set identifier BEFORE onLoaded
+            enterPanel.Identifier = options.identifier;
             options.options.onLoaded?.Invoke(enterPanel, args);
 
-            await enterPanel.AfterLoadAsync(RectTransform, args);
+            await enterPanel.AfterLoadAsync(RectTransform, args, ct);
 
             ViewRef<Panel>? exitPanelRef = _panels.Count == 0 ? null : _panels[^1];
             Panel exitPanel = exitPanelRef?.View;
@@ -478,55 +498,67 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
             if (exitPanel)
             {
-                await exitPanel.BeforeExitAsync(true, args);
+                await exitPanel.BeforeExitAsync(true, args, ct);
             }
 
-            await enterPanel.BeforeEnterAsync(true, args);
+            await enterPanel.BeforeEnterAsync(true, args, ct);
 
             // Play Animations
             var animExit = exitPanel
-                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel)
+                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel, ct)
                 : default;
 
-            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel);
+            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel, ct);
 
-            await UniTask.WhenAll(animExit, animEnter);
-
-            // End Transition
-            if (_isActivePanelStacked == false && exitPanelId.HasValue)
+            try
             {
-                _panels.RemoveAt(_panels.Count - 1);
+                await UniTask.WhenAll(animExit, animEnter);
             }
-
-            _panels.Add(new ViewRef<Panel>(enterPanel, resourcePath, options.options.poolingPolicy));
-            IsInTransition = false;
-
-            // Postprocess
-            if (exitPanel)
+            catch (OperationCanceledException)
             {
-                exitPanel.AfterExit(true, args);
+                throw;
             }
-
-            enterPanel.AfterEnter(true, args);
-
-            foreach (var callbackReceiver in _callbackReceivers)
+            finally
             {
-                callbackReceiver.AfterPush(enterPanel, exitPanel, args);
-            }
+                // End Transition
+                if (_isActivePanelStacked == false && exitPanelId.HasValue)
+                {
+                    _panels.RemoveAt(_panels.Count - 1);
+                }
 
-            // Unload unused Panel
-            if (_isActivePanelStacked == false && exitPanelRef.HasValue)
-            {
-                await exitPanel.BeforeReleaseAsync(args);
+                _panels.Add(new ViewRef<Panel>(enterPanel, resourcePath, options.options.poolingPolicy));
+                IsInTransition = false;
 
-                DestroyAndForget(exitPanelRef.Value);
-            }
+                // Postprocess
+                if (exitPanel)
+                {
+                    exitPanel.AfterExit(true, args);
+                }
 
-            _isActivePanelStacked = options.stack;
+                enterPanel.AfterEnter(true, args);
+
+                foreach (var callbackReceiver in _callbackReceivers)
+                {
+                    callbackReceiver.AfterPush(enterPanel, exitPanel, args);
+                }
+
+                // Unload unused Panel
+                if (_isActivePanelStacked == false && exitPanelRef.HasValue)
+                {
+                    if (!ct.IsCancellationRequested)
+                        await exitPanel.BeforeReleaseAsync(args, ct);
+                    else
+                        exitPanel.BeforeReleaseAsync(args, ct).Forget();
+
+                    DestroyAndForget(exitPanelRef.Value);
+                }
+
+                _isActivePanelStacked = options.stack;
             
-            if (Settings.EnableInteractionInTransition == false)
-            {
-                Interactable = true;
+                if (Settings.EnableInteractionInTransition == false)
+                {
+                    Interactable = true;
+                }
             }
         }
 
@@ -582,6 +614,12 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
         private async UniTask PopAsyncInternal(bool playAnimation, Memory<object> args)
         {
+            CancelTransition();
+            await PopAsyncInternal(playAnimation, args, this._transitionCts.Token);
+        } 
+        
+        private async UniTask PopAsyncInternal(bool playAnimation, Memory<object> args, CancellationToken ct)
+        {
             if (_panels.Count == 0)
             {
                 ErrorIfCannotTransitionBecauseNoPanel();
@@ -619,53 +657,126 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
                 callbackReceiver.BeforePop(enterPanel, exitPanel, args);
             }
 
-            await exitPanel.BeforeExitAsync(false, args);
+            if (!ct.IsCancellationRequested)
+                await exitPanel.BeforeExitAsync(false, args, ct);
+            else
+                exitPanel.BeforeExitAsync(false, args, ct).Forget();
 
             if (enterPanel)
             {
-                await enterPanel.BeforeEnterAsync(false, args);
+                if (!ct.IsCancellationRequested)
+                {
+                    await enterPanel.BeforeEnterAsync(false, args, ct);
+                }
+                else
+                {
+                    enterPanel.BeforeEnterAsync(false, args, ct).Forget();
+                }
             }
 
             // Play Animations
-            var animExit = exitPanel.ExitAsync(false, playAnimation, enterPanel);
+            var animExit = exitPanel.ExitAsync(false, playAnimation, enterPanel, ct);
 
             var animEnter = enterPanel
-                ? enterPanel.EnterAsync(false, playAnimation, exitPanel)
+                ? enterPanel.EnterAsync(false, playAnimation, exitPanel, ct)
                 : default;
 
-            await UniTask.WhenAll(animExit, animEnter);
-
-            // End Transition
-            _panels.RemoveAt(lastPanel);
-            IsInTransition = false;
-
-            // Postprocess
-            exitPanel.AfterExit(false, args);
-
-            if (enterPanel)
+            try
             {
-                enterPanel.AfterEnter(false, args);
+                await UniTask.WhenAll(animExit, animEnter);
             }
-
-            foreach (var callbackReceiver in _callbackReceivers)
+            catch (OperationCanceledException)
             {
-                callbackReceiver.AfterPop(enterPanel, exitPanel, args);
+                throw;
             }
+            finally
+            {
+                // End Transition (Cleanup, regardless of cancellation)
+                _panels.RemoveAt(lastPanel);
+                IsInTransition = false;
+                
+                // Postprocess
+                exitPanel.AfterExit(false, args);
 
-            // Unload unused Panel
-            await exitPanel.BeforeReleaseAsync(args);
+                if (enterPanel)
+                {
+                    enterPanel.AfterEnter(false, args);
+                }
 
-            DestroyAndForget(exitPanelRef);
+                foreach (var callbackReceiver in _callbackReceivers)
+                {
+                    callbackReceiver.AfterPop(enterPanel, exitPanel, args);
+                }
 
-            _isActivePanelStacked = true;
+                // Unload unused Panel
+                if (!ct.IsCancellationRequested)
+                    await exitPanel.BeforeReleaseAsync(args, ct);
+                else
+                    exitPanel.BeforeReleaseAsync(args, ct).Forget();
+
+                DestroyAndForget(exitPanelRef);
+
+                _isActivePanelStacked = true;
             
-            if (Settings.EnableInteractionInTransition == false)
-            {
-                Interactable = true;
+                if (Settings.EnableInteractionInTransition == false)
+                {
+                    Interactable = true;
+                }
             }
         }
 
         #endregion
+
+        #region Toggle
+
+        public void Toggle(PanelOptions options, params object[] args)
+        {
+            ToggleAsyncInternal<Panel>(options, args).Forget();
+        }
+        
+        public void Toggle(PanelOptions options, Memory<object> args = default)
+        {
+            ToggleAsyncInternal<Panel>(options, args).Forget();
+        }
+        
+        public async UniTask ToggleAsync(PanelOptions options, Memory<object> args)
+        {
+            await ToggleAsyncInternal<Panel>(options, args);
+        }
+        
+        public async UniTask ToggleAsync(PanelOptions options, params object[] args)
+        {
+            await ToggleAsyncInternal<Panel>(options, args);
+        }
+        
+        private async UniTask ToggleAsyncInternal<TPanel>(PanelOptions options, Memory<object> args)
+            where TPanel : Panel
+        {
+            CancelTransition();
+            
+            await UniTask.WaitUntil((() => IsInTransition == false));
+            
+            var newResourcePath = options.identifier;
+            var currentResourcePath = Current.View?.Identifier;
+
+            if (newResourcePath == currentResourcePath)
+            {
+                await PopAsync(options.options.playAnimation, args);
+            }
+            else
+            {
+                await PushAsync(options, args);
+            }
+        }
+
+        #endregion
+
+        public void CancelTransition()
+        {
+            this._transitionCts?.Cancel();
+            this._transitionCts?.Dispose();
+            this._transitionCts = new CancellationTokenSource();
+        }
         
         [HideInCallstack, DoesNotReturn, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
         private static void ErrorCannotFindParent(RectTransform rectTransform)

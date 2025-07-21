@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using ZBase.UnityScreenNavigator.Foundation.Animation;
@@ -14,19 +15,29 @@ namespace ZBase.UnityScreenNavigator.Core
 
     internal static class TransitionAnimationExtensions
     {
-        public static async UniTask PlayAsync(this ITransitionAnimation self, IProgress<float> progress = null)
+        public static async UniTask PlayAsync(this ITransitionAnimation self, IProgress<float> progress = null, CancellationToken ct = default)
         {
             var player = new AnimationPlayer(self);
 
             progress?.Report(0.0f);
             player.Play();
 
-            while (player.IsFinished == false)
+            try
             {
-                await UniTask.NextFrame();
+                while (player.IsFinished == false)
+                {
+                    await UniTask.NextFrame(ct);
 
-                player.Update(Time.unscaledDeltaTime);
+                    player.Update(Time.unscaledDeltaTime);
+                    progress?.Report(player.Time / self.Duration);
+                }
+            }
+            catch (OperationCanceledException e)
+            {
+                player.SetTime(player.Animation.Duration);
                 progress?.Report(player.Time / self.Duration);
+                //Debug.Log($"Canceled transition anim");
+                throw;
             }
         }
     }
