@@ -12,6 +12,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
     [Serializable]
     public class PanelTransitionAnimationContainer
     {
+        [SerializeField] private bool _completeAnimationWhenCanceled;
         [SerializeField] private List<TransitionAnimation> _pushEnterAnimations = new();
         [SerializeField] private List<TransitionAnimation> _pushExitAnimations = new();
         [SerializeField] private List<TransitionAnimation> _popEnterAnimations = new();
@@ -21,7 +22,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         public List<TransitionAnimation> PushExitAnimations => _pushExitAnimations;
         public List<TransitionAnimation> PopEnterAnimations => _popEnterAnimations;
         public List<TransitionAnimation> PopExitAnimations => _popExitAnimations;
-        
+
+        public bool CompleteAnimationWhenCanceled => this._completeAnimationWhenCanceled;
+
         public ITransitionAnimation GetAnimation(bool push, bool enter, string partnerTransitionIdentifier)
         {
             var anims = GetAnimations(push, enter);

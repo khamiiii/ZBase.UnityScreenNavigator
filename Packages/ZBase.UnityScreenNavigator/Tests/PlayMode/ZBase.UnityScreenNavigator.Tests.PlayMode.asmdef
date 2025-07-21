@@ -3,7 +3,8 @@
     "rootNamespace": "ZBase.UnityScreenNavigator.Tests.PlayMode",
     "references": [
         "UnityEngine.TestRunner",
-        "ZBase.UnityScreenNavigator"
+        "ZBase.UnityScreenNavigator",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

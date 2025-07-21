@@ -168,7 +168,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
                 anim.Setup(RectTransform);
 
-                await anim.PlayAsync(TransitionProgressReporter, ct);
+                await anim.PlayAsync(TransitionProgressReporter, AnimationContainer.CompleteAnimationWhenCanceled, ct);
             }
 
             RectTransform.FillParent(Parent);
@@ -230,7 +230,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
                 anim.Setup(RectTransform);
 
-                await anim.PlayAsync(TransitionProgressReporter, ct);
+                await anim.PlayAsync(TransitionProgressReporter, AnimationContainer.CompleteAnimationWhenCanceled, ct);
             }
             
             Alpha = 0.0f;

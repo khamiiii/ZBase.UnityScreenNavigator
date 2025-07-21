@@ -15,7 +15,9 @@ namespace ZBase.UnityScreenNavigator.Core
 
     internal static class TransitionAnimationExtensions
     {
-        public static async UniTask PlayAsync(this ITransitionAnimation self, IProgress<float> progress = null, CancellationToken ct = default)
+        public static async UniTask PlayAsync(this ITransitionAnimation self, IProgress<float> progress = null,
+            bool completeWhenCanceled = false,
+            CancellationToken ct = default)
         {
             var player = new AnimationPlayer(self);
 
@@ -34,8 +36,15 @@ namespace ZBase.UnityScreenNavigator.Core
             }
             catch (OperationCanceledException e)
             {
-                player.SetTime(player.Animation.Duration);
-                progress?.Report(player.Time / self.Duration);
+                if (completeWhenCanceled)
+                {
+                    player.SetTime(player.Animation.Duration);
+                    progress?.Report(player.Time / self.Duration);
+                }
+                else
+                {
+                    player.Stop();
+                }
                 //Debug.Log($"Canceled transition anim");
                 throw;
             }

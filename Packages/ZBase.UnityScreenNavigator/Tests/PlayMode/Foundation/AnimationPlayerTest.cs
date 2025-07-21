@@ -1,4 +1,10 @@
-﻿using NUnit.Framework;
+﻿using System;
+using System.Collections;
+using System.Threading;
+using Cysharp.Threading.Tasks;
+using NUnit.Framework;
+using UnityEngine.TestTools;
+using ZBase.UnityScreenNavigator.Core;
 using ZBase.UnityScreenNavigator.Foundation.Animation;
 
 namespace ZBase.UnityScreenNavigator.Tests.PlayMode.Foundation
@@ -96,5 +102,39 @@ namespace ZBase.UnityScreenNavigator.Tests.PlayMode.Foundation
             player.SetTime(float.MaxValue);
             Assert.That(player.IsFinished, Is.True);
         }
+
+        [UnityTest]
+        public IEnumerator Canceled_CompleteWhenCanceled_ProgressIsOne() => UniTask.ToCoroutine(async () => 
+        {
+            const float duration = 1.0f;
+            var animation = new FakeTransitionAnimation(duration);
+            var cts = new CancellationTokenSource();
+            cts.CancelAfter(TimeSpan.FromSeconds(0.1f));
+            try
+            {
+                await animation.PlayAsync(completeWhenCanceled: true, ct: cts.Token);
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.AreEqual(animation.Progress, 1f, 0.1f);
+            }
+        });
+        
+        [UnityTest]
+        public IEnumerator Canceled_NotProgressing() => UniTask.ToCoroutine(async () => 
+        {
+            const float duration = 1.0f;
+            var animation = new FakeTransitionAnimation(duration);
+            var cts = new CancellationTokenSource();
+            cts.CancelAfter(TimeSpan.FromSeconds(0.1f));
+            try
+            {
+                await animation.PlayAsync(completeWhenCanceled: false, ct: cts.Token);
+            }
+            catch (OperationCanceledException e)
+            {
+                Assert.AreEqual(animation.Progress, 0.1f, 0.1f);
+            }
+        });
     }
 }
