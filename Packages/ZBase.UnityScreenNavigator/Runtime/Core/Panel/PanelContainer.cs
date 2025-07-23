@@ -8,36 +8,30 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using ZBase.UnityScreenNavigator.Core.Controls;
 using ZBase.UnityScreenNavigator.Foundation;
-using Debug = UnityEngine.Debug;
 
 namespace ZBase.UnityScreenNavigator.Core.Panel
 {
     public class PanelContainer : ControlContainerBase
     {
         private readonly List<IPanelContainerCallbackReceiver> _callbackReceivers = new();
-        private readonly List<ViewRef<Panel>> _panels = new();
-
-        private bool _isActivePanelStacked;
+        private ViewRef<Panel>? _activePanel;
         
         /// <summary>
         /// True if in transition.
         /// </summary>
         public bool IsInTransition { get; private set; }
         
-        /// <summary>
-        /// Stacked panels.
-        /// </summary>
-        public IReadOnlyList<ViewRef<Panel>> Panels => _panels;
 
-        public ViewRef<Panel> Current => _panels.Count > 0 ? _panels[^1] : default;
+        public ViewRef<Panel>? ActivePanel => _activePanel;
 
         private CancellationTokenSource _transitionCts;
+        private ViewRef<Panel> _transitioningPanel;
 
         protected override void Awake()
         {
             base.Awake();
             
-            this._callbackReceivers.AddRange(GetComponents<IPanelContainerCallbackReceiver>());
+            _callbackReceivers.AddRange(GetComponents<IPanelContainerCallbackReceiver>());
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -74,30 +68,28 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
             IsInTransition = false;
 
-            var sheets = _panels;
-
-            foreach (var sheetRef in sheets)
+            var panelRef = _activePanel;
+            if (panelRef.HasValue)
             {
-                await sheetRef.View.BeforeReleaseAsync(args, default);
-                DestroyAndForget(sheetRef);
+                await panelRef.Value.View.BeforeReleaseAsync(args, default);
+
+                DestroyAndForget(panelRef.Value);
             }
 
-            sheets.Clear();
+            _activePanel = null;
         }
         
         protected override void OnDestroy()
         {
             base.OnDestroy();
 
-            var panels = _panels;
-
-            foreach (var panelRef in panels)
+            if (_activePanel.HasValue)
             {
-                (Panel panel, var resourcePath) = panelRef;
+                var (panel, resourcePath) = _activePanel.Value;
                 DestroyAndForget(panel, resourcePath, PoolingPolicy.DisablePooling).Forget();
+
+                _activePanel = null;
             }
-            
-            panels.Clear();
         }
         
         /// <summary>
@@ -118,249 +110,35 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             _callbackReceivers.Remove(callbackReceiver);
         }
         
-        /// <summary>
-        /// Searches through the <see cref="Panel"/> stack
-        /// and returns the index of the Panel loaded from <paramref name="resourcePath"/>
-        /// that has been recently pushed into this container if any.
-        /// </summary>
-        /// <param name="resourcePath"></param>
-        /// <param name="index">
-        /// Return a value greater or equal to 0 if there is
-        /// a Panel loaded from this <paramref name="resourcePath"/>.
-        /// </param>
-        /// <returns>
-        /// True if there is a Panel loaded from this <paramref name="resourcePath"/>.
-        /// </returns>
-        public bool FindIndexOfRecentlyPushed(string resourcePath, out int index)
+        public bool IsTransitioningIn(string identifier)
         {
-            if (resourcePath == null)
-            {
-                throw new ArgumentNullException(nameof(resourcePath));
-            }
+            if (!_transitioningPanel.View || _transitioningPanel.View.Identifier != identifier)
+                return false;
 
-            var panels = this._panels;
-
-            for (var i = panels.Count - 1; i >= 0; i--)
-            {
-                if (string.Equals(resourcePath, panels[i].ResourcePath))
-                {
-                    index = i;
-                    return true;
-                }
-            }
-
-            index = -1;
-            return false;
-        }
-        
-        /// <summary>
-        /// Searches through the <see cref="Panel"/> stack
-        /// and destroys the Panel loaded from <paramref name="resourcePath"/>
-        /// that has been recently pushed into this container if any.
-        /// </summary>
-        /// <param name="resourcePath"></param>
-        /// <param name="ignoreFront">Do not destroy if the Panel is in the front.</param>
-        /// <returns>
-        /// True if there is a Panel loaded from this <paramref name="resourcePath"/>.
-        /// </returns>
-        public void DestroyRecentlyPushed(string resourcePath, bool ignoreFront = true)
-        {
-            if (resourcePath == null)
-            {
-                throw new ArgumentNullException(nameof(resourcePath));
-            }
-
-            var frontIndex = _panels.Count - 1;
-
-            if (FindIndexOfRecentlyPushed(resourcePath, out var index) == false)
-            {
-                return;
-            }
-
-            if (ignoreFront && frontIndex == index)
-            {
-                return;
-            }
-
-            var panel = _panels[index];
-            _panels.RemoveAt(index);
-
-            DestroyAndForget(panel);
+            var animationType = _transitioningPanel.View.TransitionAnimationType;
+            return animationType is PanelTransitionAnimationType.Enter;
         }
 
-        #region BringToFront
+        public bool IsTransitioningOut(string identifier)
+        {
+            if (!_transitioningPanel.View || _transitioningPanel.View.Identifier != identifier)
+                return false;
 
-        /// <summary>
-        /// Bring an instance of <see cref="Panel"/> to the front.
-        /// </summary>
-        /// <param name="ignoreFront">Ignore if the panel is already in the front.</param>
-        /// <remarks>Fire-and-forget</remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void BringToFront(PanelOptions options, bool ignoreFront, params object[] args)
-        {
-            BringToFrontAndForget(options, ignoreFront, args).Forget();
-        }
-        
-        /// <summary>
-        /// Bring an instance of <see cref="Panel"/> to the front.
-        /// </summary>
-        /// <param name="ignoreFront">Ignore if the panel is already in the front.</param>
-        /// <remarks>Fire-and-forget</remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void BringToFront(PanelOptions options, bool ignoreFront, Memory<object> args = default)
-        {
-            BringToFrontAndForget(options, ignoreFront, args).Forget();
+            var animationType = _transitioningPanel.View.TransitionAnimationType;
+            return animationType is PanelTransitionAnimationType.Exit;
         }
 
-        /// <summary>
-        /// Bring an instance of <see cref="Panel"/> to the front.
-        /// </summary>
-        /// <param name="ignoreFront">Ignore if the panel is already in the front.</param>
-        /// <remarks>Asynchronous</remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask BringToFrontAsync(PanelOptions options, bool ignoreFront, params object[] args)
-        {
-            await BringToFrontAsyncInternal(options, ignoreFront, args);
-        }
-        
-        /// <summary>
-        /// Bring an instance of <see cref="Panel"/> to the front.
-        /// </summary>
-        /// <param name="ignoreFront">Ignore if the panel is already in the front.</param>
-        /// <remarks>Asynchronous</remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask BringToFrontAsync(PanelOptions options, bool ignoreFront, Memory<object> args = default)
-        {
-            await BringToFrontAsyncInternal(options, ignoreFront, args);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private async UniTaskVoid BringToFrontAndForget(PanelOptions options, bool ignoreFront, Memory<object> args)
-        {
-            await BringToFrontAsyncInternal(options, ignoreFront, args);
-        }
-
-        private async UniTask BringToFrontAsyncInternal(PanelOptions options, bool ignoreFront, Memory<object> args)
-        {
-            CancelTransition();
-            await BringToFrontAsyncInternal(options, ignoreFront, args, this._transitionCts.Token);
-        }
-        
-        private async UniTask BringToFrontAsyncInternal(PanelOptions options, bool ignoreFront, Memory<object> args, CancellationToken ct)
-        {
-            var resourcePath = options.options.resourcePath;
-
-            if (resourcePath == null)
-            {
-                throw new ArgumentNullException(nameof(resourcePath));
-            }
-
-            var frontIndex = _panels.Count - 1;
-
-            if (FindIndexOfRecentlyPushed(resourcePath, out var index) == false)
-            {
-                return;
-            }
-
-            if (ignoreFront && frontIndex == index)
-            {
-                return;
-            }
-
-            var enterPanel = _panels[index].View;
-            enterPanel.Settings = Settings;
-
-            var panelId = enterPanel.GetInstanceID();
-            _panels.RemoveAt(index);
-
-            RectTransform.RemoveChild(enterPanel.transform);
-
-            options.options.onLoaded?.Invoke(enterPanel, args);
-
-            await enterPanel.AfterLoadAsync(RectTransform, args, ct);
-
-            ViewRef<Panel>? exitPanelRef = _panels.Count == 0 ? null : _panels[^1];
-            Panel exitPanel = exitPanelRef.HasValue ? exitPanelRef.Value.View : null;
-            var exitPanelId = exitPanel == false ? (int?) null : exitPanel.GetInstanceID();
-
-            if (exitPanel)
-            {
-                exitPanel.Settings = Settings;
-            }
-
-            // Preprocess
-            foreach (var callbackReceiver in _callbackReceivers)
-            {
-                callbackReceiver.BeforePush(enterPanel, exitPanel, args);
-            }
-
-            if (exitPanel)
-            {
-                await exitPanel.BeforeExitAsync(true, args, ct);
-            }
-
-            await enterPanel.BeforeEnterAsync(true, args, ct);
-
-            // Play Animations
-            var animExit = exitPanel
-                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel, ct)
-                : default;
-
-            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel, ct);
-
-            await UniTask.WhenAll(animExit, animEnter);
-
-            // End Transition
-            if (_isActivePanelStacked == false && exitPanelId.HasValue)
-            {
-                _panels.RemoveAt(_panels.Count - 1);
-            }
-
-            _panels.Add(new ViewRef<Panel>(enterPanel, resourcePath, options.options.poolingPolicy));
-            IsInTransition = false;
-
-            // Postprocess
-            if (exitPanel)
-            {
-                exitPanel.AfterExit(true, args);
-            }
-
-            enterPanel.AfterEnter(true, args);
-
-            foreach (var callbackReceiver in _callbackReceivers)
-            {
-                callbackReceiver.AfterPush(enterPanel, exitPanel, args);
-            }
-
-            // Unload unused Panel
-            if (_isActivePanelStacked == false && exitPanelRef.HasValue)
-            {
-                await exitPanel.BeforeReleaseAsync(args, ct);
-
-                DestroyAndForget(exitPanelRef.Value);
-            }
-
-            _isActivePanelStacked = options.stack;
-
-            if (Settings.EnableInteractionInTransition == false)
-            {
-                Interactable = true;
-            }
-        }
-
-        #endregion
-
-        #region Push
+        #region Show
 
         /// <summary>
         /// Push an instance of <typeparamref name="TPanel"/>.
         /// </summary>
         /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Push<TPanel>(PanelOptions options, params object[] args)
+        public void Show<TPanel>(PanelOptions options, params object[] args)
             where TPanel : Panel
         {
-            PushAndForget<TPanel>(options, args).Forget();
+            ShowAndForget<TPanel>(options, args).Forget();
         }
         
         /// <summary>
@@ -368,10 +146,10 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Push<TPanel>(PanelOptions options, Memory<object> args = default)
+        public void Show<TPanel>(PanelOptions options, Memory<object> args = default)
             where TPanel : Panel
         {
-            PushAndForget<TPanel>(options, args).Forget();
+            ShowAndForget<TPanel>(options, args).Forget();
         }
 
         /// <summary>
@@ -379,9 +157,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Push(PanelOptions options, params object[] args)
+        public void Show(PanelOptions options, params object[] args)
         {
-            PushAndForget<Panel>(options, args).Forget();
+            ShowAndForget<Panel>(options, args).Forget();
         }
         
         /// <summary>
@@ -389,9 +167,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Push(PanelOptions options, Memory<object> args = default)
+        public void Show(PanelOptions options, Memory<object> args = default)
         {
-            PushAndForget<Panel>(options, args).Forget();
+            ShowAndForget<Panel>(options, args).Forget();
         }
 
         /// <summary>
@@ -399,10 +177,10 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Asynchronous</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PushAsync<TPanel>(PanelOptions options, params object[] args)
+        public async UniTask ShowAsync<TPanel>(PanelOptions options, params object[] args)
             where TPanel : Panel
         {
-            await PushAsyncInternal<TPanel>(options, args);
+            await ShowAsyncInternal<TPanel>(options, args);
         }
         
         /// <summary>
@@ -410,10 +188,10 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Asynchronous</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PushAsync<TPanel>(PanelOptions options, Memory<object> args = default)
+        public async UniTask ShowAsync<TPanel>(PanelOptions options, Memory<object> args = default)
             where TPanel : Panel
         {
-            await PushAsyncInternal<TPanel>(options, args);
+            await ShowAsyncInternal<TPanel>(options, args);
         }
 
         /// <summary>
@@ -421,9 +199,9 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Asynchronous</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PushAsync(PanelOptions options, params object[] args)
+        public async UniTask ShowAsync(PanelOptions options, params object[] args)
         {
-            await PushAsyncInternal<Panel>(options, args);
+            await ShowAsyncInternal<Panel>(options, args);
         }
         
         /// <summary>
@@ -431,39 +209,42 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         /// </summary>
         /// <remarks>Asynchronous</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PushAsync(PanelOptions options, Memory<object> args = default)
+        public async UniTask ShowAsync(PanelOptions options, Memory<object> args = default)
         {
-            await PushAsyncInternal<Panel>(options, args);
+            await ShowAsyncInternal<Panel>(options, args);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private async UniTaskVoid PushAndForget<TPanel>(PanelOptions options, Memory<object> args)
+        private async UniTaskVoid ShowAndForget<TPanel>(PanelOptions options, Memory<object> args)
             where TPanel : Panel
         {
-            CancelTransition();
-            await PushAsyncInternal<TPanel>(options, args, this._transitionCts.Token);
+            await ShowAsyncInternal<TPanel>(options, args);
         }
 
-        private async UniTask PushAsyncInternal<TPanel>(PanelOptions options, Memory<object> args)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private async UniTask ShowAsyncInternal<TPanel>(PanelOptions options, Memory<object> args)
             where TPanel : Panel
         {
-            CancelTransition();
-            await PushAsyncInternal<TPanel>(options, args, this._transitionCts.Token);
+            ForceCompleteTransition();
+            
+            await UniTask.WaitUntil((() => IsInTransition == false));
+            await ShowAsyncInternal<TPanel>(options, args, _transitionCts.Token);
         }
         
-        private async UniTask PushAsyncInternal<TPanel>(PanelOptions options, Memory<object> args, CancellationToken ct)
+        private async UniTask ShowAsyncInternal<TPanel>(PanelOptions options, Memory<object> args, CancellationToken ct)
             where TPanel : Panel
         {
             var resourcePath = options.options.resourcePath;
-
-            if (resourcePath == null)
-            {
-                throw new ArgumentNullException(nameof(resourcePath));
-            }
 
             if (IsInTransition)
             {
                 ErrorIfCannotTransition();
+                return;
+            }
+
+            if (_activePanel?.View.Identifier == options.identifier)
+            {
+                WarningIfCannotTransitionBecauseActive(options.identifier);
                 return;
             }
 
@@ -473,42 +254,39 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             {
                 Interactable = false;
             }
-
+            
             var enterPanel = await GetViewAsync<TPanel>(options.options);
             //Set identifier BEFORE onLoaded
             enterPanel.Identifier = options.identifier;
             options.options.onLoaded?.Invoke(enterPanel, args);
-
+            
             await enterPanel.AfterLoadAsync(RectTransform, args, ct);
 
-            ViewRef<Panel>? exitPanelRef = _panels.Count == 0 ? null : _panels[^1];
-            Panel exitPanel = exitPanelRef?.View;
-            var exitPanelId = exitPanel == null ? (int?) null : exitPanel.GetInstanceID();
+            ViewRef<Panel>? exitPanelRef = _activePanel;
+            var exitPanel = exitPanelRef?.View;
 
-            if (exitPanel)
-            {
+            if (exitPanel) 
                 exitPanel.Settings = Settings;
-            }
 
             // Preprocess
             foreach (var callbackReceiver in _callbackReceivers)
             {
-                callbackReceiver.BeforePush(enterPanel, exitPanel, args);
+                callbackReceiver.BeforeShow(enterPanel, exitPanel, args);
             }
 
             if (exitPanel)
             {
-                await exitPanel.BeforeExitAsync(true, args, ct);
+                await exitPanel.BeforeExitAsync(args, ct);
             }
 
-            await enterPanel.BeforeEnterAsync(true, args, ct);
-
-            // Play Animations
+            await enterPanel.BeforeEnterAsync(args, ct);
+            
+            // Play Animation
             var animExit = exitPanel
-                ? exitPanel.ExitAsync(true, options.options.playAnimation, enterPanel, ct)
+                ? exitPanel.ExitAsync(options.options.playAnimation, enterPanel, ct)
                 : default;
 
-            var animEnter = enterPanel.EnterAsync(true, options.options.playAnimation, exitPanel, ct);
+            var animEnter = enterPanel.EnterAsync(options.options.playAnimation, exitPanel, ct);
 
             try
             {
@@ -520,30 +298,24 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             }
             finally
             {
-                // End Transition
-                if (_isActivePanelStacked == false && exitPanelId.HasValue)
-                {
-                    _panels.RemoveAt(_panels.Count - 1);
-                }
-
-                _panels.Add(new ViewRef<Panel>(enterPanel, resourcePath, options.options.poolingPolicy));
+                _activePanel = new ViewRef<Panel>(enterPanel, resourcePath, options.options.poolingPolicy);
                 IsInTransition = false;
-
+                
                 // Postprocess
                 if (exitPanel)
                 {
-                    exitPanel.AfterExit(true, args);
+                    exitPanel.AfterExit(args);
                 }
 
-                enterPanel.AfterEnter(true, args);
+                enterPanel.AfterEnter(args);
 
                 foreach (var callbackReceiver in _callbackReceivers)
                 {
-                    callbackReceiver.AfterPush(enterPanel, exitPanel, args);
+                    callbackReceiver.AfterShow(enterPanel, exitPanel, args);
                 }
 
                 // Unload unused Panel
-                if (_isActivePanelStacked == false && exitPanelRef.HasValue)
+                if (exitPanelRef.HasValue)
                 {
                     if (!ct.IsCancellationRequested)
                         await exitPanel.BeforeReleaseAsync(args, ct);
@@ -553,8 +325,6 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
                     DestroyAndForget(exitPanelRef.Value);
                 }
 
-                _isActivePanelStacked = options.stack;
-            
                 if (Settings.EnableInteractionInTransition == false)
                 {
                     Interactable = true;
@@ -564,65 +334,52 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
         #endregion
 
-        #region Pop
+        #region Hide
 
-        /// <summary>
-        /// Pop current instance of <see cref="Panel"/>.
-        /// </summary>
-        /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Pop(bool playAnimation, params object[] args)
+        public void Hide(string identifier, bool playAnimation, params object[] args)
         {
-            PopAndForget(playAnimation, args).Forget();
+            HideAndForget(identifier, playAnimation, args).Forget();
         }
         
-        /// <summary>
-        /// Pop current instance of <see cref="Panel"/>.
-        /// </summary>
-        /// <remarks>Fire-and-forget</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Pop(bool playAnimation, Memory<object> args = default)
+        public void Hide(string identifier, bool playAnimation, Memory<object> args)
         {
-            PopAndForget(playAnimation, args).Forget();
-        }
-
-        /// <summary>
-        /// Pop current instance of <see cref="Panel"/>.
-        /// </summary>
-        /// <remarks>Asynchronous</remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PopAsync(bool playAnimation, params object[] args)
-        {
-            await PopAsyncInternal(playAnimation, args);
+            HideAndForget(identifier, playAnimation, args).Forget();
         }
         
-        /// <summary>
-        /// Pop current instance of <see cref="Panel"/>.
-        /// </summary>
-        /// <remarks>Asynchronous</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public async UniTask PopAsync(bool playAnimation, Memory<object> args = default)
+        public async UniTask HideAsync(string identifier, bool playAnimation, params object[] args)
         {
-            await PopAsyncInternal(playAnimation, args);
+            await HideAsyncInternal(identifier, playAnimation, args);
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private async UniTaskVoid PopAndForget(bool playAnimation, Memory<object> args)
-        {
-            await PopAsyncInternal(playAnimation, args);
-        }
-
-        private async UniTask PopAsyncInternal(bool playAnimation, Memory<object> args)
-        {
-            CancelTransition();
-            await PopAsyncInternal(playAnimation, args, this._transitionCts.Token);
-        } 
         
-        private async UniTask PopAsyncInternal(bool playAnimation, Memory<object> args, CancellationToken ct)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public async UniTask HideAsync(string identifier, bool playAnimation, Memory<object> args)
         {
-            if (_panels.Count == 0)
+            await HideAsyncInternal(identifier, playAnimation, args);
+        }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private async UniTaskVoid HideAndForget(string identifier, bool playAnimation, Memory<object> args)
+        {
+            await HideAsyncInternal(identifier, playAnimation, args);
+        }
+        
+        private async UniTask HideAsyncInternal(string identifier, bool playAnimation, Memory<object> args = default)
+        {
+            ForceCompleteTransition();
+            
+            await UniTask.WaitUntil((() => IsInTransition == false));
+            
+            await HideAsyncInternal(identifier, playAnimation, args, _transitionCts.Token);
+        }
+        
+        private async UniTask HideAsyncInternal(string identifier, bool playAnimation, Memory<object> args, CancellationToken ct)
+        {
+            if (!_activePanel.HasValue || _activePanel.Value.View.Identifier != identifier)
             {
-                ErrorIfCannotTransitionBecauseNoPanel();
+                ErrorIfCannotHideBecauseNoPanel(identifier);
                 return;
             }
 
@@ -631,59 +388,31 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
                 ErrorIfCannotTransition();
                 return;
             }
-
-            IsInTransition = true;
             
-            if (Settings.EnableInteractionInTransition == false)
-            {
-                Interactable = false;
-            }
+            IsInTransition = true;
 
-            var lastPanel = _panels.Count - 1;
-            var exitPanelRef = _panels[lastPanel];
+            if (Settings.EnableInteractionInTransition == false) 
+                Interactable = false;
+
+            var exitPanelRef = _activePanel.Value;
             var exitPanel = exitPanelRef.View;
             exitPanel.Settings = Settings;
-
-            var enterPanel = _panels.Count == 1 ? null : _panels[^2].View;
-
-            if (enterPanel)
-            {
-                enterPanel.Settings = Settings;
-            }
 
             // Preprocess
             foreach (var callbackReceiver in _callbackReceivers)
             {
-                callbackReceiver.BeforePop(enterPanel, exitPanel, args);
+                callbackReceiver.BeforeHide(exitPanel, args);
             }
 
             if (!ct.IsCancellationRequested)
-                await exitPanel.BeforeExitAsync(false, args, ct);
+                await exitPanel.BeforeExitAsync(args, ct);
             else
-                exitPanel.BeforeExitAsync(false, args, ct).Forget();
-
-            if (enterPanel)
-            {
-                if (!ct.IsCancellationRequested)
-                {
-                    await enterPanel.BeforeEnterAsync(false, args, ct);
-                }
-                else
-                {
-                    enterPanel.BeforeEnterAsync(false, args, ct).Forget();
-                }
-            }
+                exitPanel.BeforeExitAsync(args, ct).Forget();
 
             // Play Animations
-            var animExit = exitPanel.ExitAsync(false, playAnimation, enterPanel, ct);
-
-            var animEnter = enterPanel
-                ? enterPanel.EnterAsync(false, playAnimation, exitPanel, ct)
-                : default;
-
             try
             {
-                await UniTask.WhenAll(animExit, animEnter);
+                await exitPanel.ExitAsync(playAnimation, null, ct);
             }
             catch (OperationCanceledException)
             {
@@ -692,20 +421,15 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             finally
             {
                 // End Transition (Cleanup, regardless of cancellation)
-                _panels.RemoveAt(lastPanel);
+                _activePanel = null;
                 IsInTransition = false;
                 
                 // Postprocess
-                exitPanel.AfterExit(false, args);
-
-                if (enterPanel)
-                {
-                    enterPanel.AfterEnter(false, args);
-                }
+                exitPanel.AfterExit(args);
 
                 foreach (var callbackReceiver in _callbackReceivers)
                 {
-                    callbackReceiver.AfterPop(enterPanel, exitPanel, args);
+                    callbackReceiver.AfterHide(exitPanel, args);
                 }
 
                 // Unload unused Panel
@@ -716,8 +440,6 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
                 DestroyAndForget(exitPanelRef);
 
-                _isActivePanelStacked = true;
-            
                 if (Settings.EnableInteractionInTransition == false)
                 {
                     Interactable = true;
@@ -726,7 +448,7 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         }
 
         #endregion
-
+        
         #region Toggle
 
         public void Toggle(PanelOptions options, params object[] args)
@@ -748,34 +470,39 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         {
             await ToggleAsyncInternal<Panel>(options, args);
         }
-        
+
         private async UniTask ToggleAsyncInternal<TPanel>(PanelOptions options, Memory<object> args)
             where TPanel : Panel
         {
-            CancelTransition();
+            ForceCompleteTransition();
             
             await UniTask.WaitUntil((() => IsInTransition == false));
-            
-            var newResourcePath = options.identifier;
-            var currentResourcePath = Current.View?.Identifier;
+            await ToggleAsyncInternal<TPanel>(options, args, _transitionCts.Token);
+        }
+        
+        private async UniTask ToggleAsyncInternal<TPanel>(PanelOptions options, Memory<object> args, CancellationToken ct)
+            where TPanel : Panel
+        {
+            var newIdentifier = options.identifier;
+            var currentIdentifier = _activePanel?.View.Identifier;
 
-            if (newResourcePath == currentResourcePath)
+            if (newIdentifier == currentIdentifier)
             {
-                await PopAsync(options.options.playAnimation, args);
+                await HideAsyncInternal(newIdentifier, options.options.playAnimation, args, ct);
             }
             else
             {
-                await PushAsync(options, args);
+                await ShowAsyncInternal<TPanel>(options, args, ct);
             }
         }
 
         #endregion
 
-        public void CancelTransition()
+        public void ForceCompleteTransition()
         {
-            this._transitionCts?.Cancel();
-            this._transitionCts?.Dispose();
-            this._transitionCts = new CancellationTokenSource();
+            _transitionCts?.Cancel();
+            _transitionCts?.Dispose();
+            _transitionCts = new CancellationTokenSource();
         }
         
         [HideInCallstack, DoesNotReturn, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
@@ -800,6 +527,18 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         private static void ErrorIfCannotTransitionBecauseNoPanel()
         {
             UnityEngine.Debug.LogError("Cannot transition because there is no panel loaded on the stack.");
+        }
+        
+        [HideInCallstack, DoesNotReturn, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
+        private static void ErrorIfCannotHideBecauseNoPanel(string identifier)
+        {
+            UnityEngine.Debug.LogError($"Cannot hide `{identifier}` because there is no panel loaded on the stack.");
+        }
+        
+        [HideInCallstack, DoesNotReturn, Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
+        private static void WarningIfCannotTransitionBecauseActive(string pageIdentifier)
+        {
+            UnityEngine.Debug.LogWarning($"Cannot transition because the panel {pageIdentifier} is already active.");
         }
     }
 }

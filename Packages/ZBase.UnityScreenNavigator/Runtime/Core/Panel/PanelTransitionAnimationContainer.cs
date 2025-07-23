@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using UnityEngine;
-using ZBase.UnityScreenNavigator.Core;
 using ZBase.UnityScreenNavigator.Foundation;
 using Object = UnityEngine.Object;
 
@@ -13,34 +12,20 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
     public class PanelTransitionAnimationContainer
     {
         [SerializeField] private bool _completeAnimationWhenCanceled;
-        [SerializeField] private List<TransitionAnimation> _pushEnterAnimations = new();
-        [SerializeField] private List<TransitionAnimation> _pushExitAnimations = new();
-        [SerializeField] private List<TransitionAnimation> _popEnterAnimations = new();
-        [SerializeField] private List<TransitionAnimation> _popExitAnimations = new();
+        [SerializeField] private List<TransitionAnimation> _enterAnimations = new();
+        [SerializeField] private List<TransitionAnimation> _exitAnimations = new();
 
-        public List<TransitionAnimation> PushEnterAnimations => _pushEnterAnimations;
-        public List<TransitionAnimation> PushExitAnimations => _pushExitAnimations;
-        public List<TransitionAnimation> PopEnterAnimations => _popEnterAnimations;
-        public List<TransitionAnimation> PopExitAnimations => _popExitAnimations;
+        public List<TransitionAnimation> EnterAnimations => _enterAnimations;
+        public List<TransitionAnimation> ExitAnimations => _exitAnimations;
 
         public bool CompleteAnimationWhenCanceled => this._completeAnimationWhenCanceled;
 
-        public ITransitionAnimation GetAnimation(bool push, bool enter, string partnerTransitionIdentifier)
+        public ITransitionAnimation GetAnimation(bool enter, string partnerTransitionIdentifier)
         {
-            var anims = GetAnimations(push, enter);
+            var anims = enter ? this._enterAnimations : this._exitAnimations;
             var anim = anims.FirstOrDefault(x => x.IsValid(partnerTransitionIdentifier));
             var result = anim?.GetAnimation();
             return result;
-        }
-
-        private IReadOnlyList<TransitionAnimation> GetAnimations(bool push, bool enter)
-        {
-            if (push)
-            {
-                return enter ? _pushEnterAnimations : _pushExitAnimations;
-            }
-
-            return enter ? _popEnterAnimations : _popExitAnimations;
         }
         
         [Serializable]

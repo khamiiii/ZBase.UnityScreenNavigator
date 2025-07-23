@@ -13,48 +13,26 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
         UniTask Initialize(Memory<object> args, CancellationToken ct);
 
         /// <summary>
-        /// Called just before this panel is displayed by the Push transition.
+        /// Called just before this panel is displayed by the Show transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPushEnter(Memory<object> args, CancellationToken ct);
+        UniTask WillEnter(Memory<object> args, CancellationToken ct);
 
         /// <summary>
-        /// Called just after this panel is displayed by the Push transition.
+        /// Called just after this panel is displayed by the Show transition.
         /// </summary>
-        void DidPushEnter(Memory<object> args);
+        void DidEnter(Memory<object> args);
 
         /// <summary>
-        /// Called just before this panel is hidden by the Push transition.
-        /// </summary>
-        /// <returns></returns>
-        UniTask WillPushExit(Memory<object> args, CancellationToken ct);
-
-        /// <summary>
-        /// Called just after this panel is hidden by the Push transition.
-        /// </summary>
-        void DidPushExit(Memory<object> args);
-
-        /// <summary>
-        /// Called just before this panel is displayed by the Pop transition.
+        /// Called just before this panel is hidden by the Hide transition.
         /// </summary>
         /// <returns></returns>
-        UniTask WillPopEnter(Memory<object> args, CancellationToken ct);
+        UniTask WillExit(Memory<object> args, CancellationToken ct);
 
         /// <summary>
-        /// Called just after this panel is displayed by the Pop transition.
+        /// Called just after this panel is hidden by the Hide transition.
         /// </summary>
-        void DidPopEnter(Memory<object> args);
-
-        /// <summary>
-        /// Called just before this panel is hidden by the Pop transition.
-        /// </summary>
-        /// <returns></returns>
-        UniTask WillPopExit(Memory<object> args, CancellationToken ct);
-
-        /// <summary>
-        /// Called just after this panel is hidden by the Pop transition.
-        /// </summary>
-        void DidPopExit(Memory<object> args);
+        void DidExit(Memory<object> args);
 
         /// <summary>
         /// Called just before this panel is released.

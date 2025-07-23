@@ -52,39 +52,21 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             return UniTask.CompletedTask;
         }
 
-        public UniTask WillPushEnter(Memory<object> args, CancellationToken ct)
+        public UniTask WillEnter(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
 
-        public void DidPushEnter(Memory<object> args)
+        public void DidEnter(Memory<object> args)
         {
         }
 
-        public UniTask WillPushExit(Memory<object> args, CancellationToken ct)
-        {
-            return UniTask.CompletedTask;
-        }
-
-        public void DidPushExit(Memory<object> args)
-        {
-        }
-
-        public UniTask WillPopEnter(Memory<object> args, CancellationToken ct)
+        public UniTask WillExit(Memory<object> args, CancellationToken ct)
         {
             return UniTask.CompletedTask;
         }
 
-        public void DidPopEnter(Memory<object> args)
-        {
-        }
-
-        public UniTask WillPopExit(Memory<object> args, CancellationToken ct)
-        {
-            return UniTask.CompletedTask;
-        }
-
-        public void DidPopExit(Memory<object> args)
+        public void DidExit(Memory<object> args)
         {
         }
 
@@ -136,30 +118,28 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask BeforeEnterAsync(bool push, Memory<object> args, CancellationToken ct)
+        internal async UniTask BeforeEnterAsync(Memory<object> args, CancellationToken ct)
         {
             IsTransitioning = true;
-            TransitionAnimationType = push ? PanelTransitionAnimationType.PushEnter : PanelTransitionAnimationType.PopEnter;
+            TransitionAnimationType = PanelTransitionAnimationType.Enter;
             gameObject.SetActive(true);
             RectTransform.FillParent(Parent);
             SetTransitionProgress(0.0f);
 
             Alpha = 0.0f;
 
-            var tasks = push
-                ? _lifecycleEvents.Select(x => x.WillPushEnter(args, ct))
-                : _lifecycleEvents.Select(x => x.WillPopEnter(args, ct));
+            var tasks = _lifecycleEvents.Select(x => x.WillEnter(args, ct));
             
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask<StubEnter> EnterAsync(bool push, bool playAnimation, Panel partnerPanel, CancellationToken ct)
+        internal async UniTask<StubEnter> EnterAsync(bool playAnimation, Panel partnerPanel, CancellationToken ct)
         {
             Alpha = 1.0f;
 
             if (playAnimation)
             {
-                var anim = GetAnimation(push, true, partnerPanel);
+                var anim = GetAnimation(true, partnerPanel);
 
                 if (partnerPanel)
                 {
@@ -176,33 +156,21 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             return default;
         }
 
-        internal void AfterEnter(bool push, Memory<object> args)
+        internal void AfterEnter(Memory<object> args)
         {
-            if (push)
+            foreach (var lifecycleEvent in _lifecycleEvents)
             {
-                foreach (var lifecycleEvent in _lifecycleEvents)
-                {
-                    lifecycleEvent.DidPushEnter(args);
-                }
-            }
-            else
-            {
-                foreach (var lifecycleEvent in _lifecycleEvents)
-                {
-                    lifecycleEvent.DidPopEnter(args);
-                }
+                lifecycleEvent.DidEnter(args);
             }
 
             IsTransitioning = false;
             TransitionAnimationType = null;
         }
 
-        internal async UniTask BeforeExitAsync(bool push, Memory<object> args, CancellationToken ct)
+        internal async UniTask BeforeExitAsync(Memory<object> args, CancellationToken ct)
         {
             IsTransitioning = true;
-            TransitionAnimationType = push
-                ? PanelTransitionAnimationType.PushExit
-                : PanelTransitionAnimationType.PopExit;
+            TransitionAnimationType = PanelTransitionAnimationType.Exit;
 
             gameObject.SetActive(true);
             RectTransform.FillParent(Parent);
@@ -210,18 +178,16 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
 
             Alpha = 1.0f;
 
-            var tasks = push
-                ? _lifecycleEvents.Select(x => x.WillPushExit(args, ct))
-                : _lifecycleEvents.Select(x => x.WillPopExit(args, ct));
+            var tasks = _lifecycleEvents.Select(x => x.WillExit(args, ct));
 
             await WaitForAsync(tasks);
         }
 
-        internal async UniTask<StubExit> ExitAsync(bool push, bool playAnimation, Panel partnerPanel, CancellationToken ct)
+        internal async UniTask<StubExit> ExitAsync(bool playAnimation, Panel partnerPanel, CancellationToken ct)
         {
             if (playAnimation)
             {
-                var anim = GetAnimation(push, false, partnerPanel);
+                var anim = GetAnimation(false, partnerPanel);
 
                 if (partnerPanel)
                 {
@@ -238,21 +204,11 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             return default;
         }
 
-        internal void AfterExit(bool push, Memory<object> args)
+        internal void AfterExit(Memory<object> args)
         {
-            if (push)
+            foreach (var lifecycleEvent in _lifecycleEvents)
             {
-                foreach (var lifecycleEvent in _lifecycleEvents)
-                {
-                    lifecycleEvent.DidPushExit(args);
-                }
-            }
-            else
-            {
-                foreach (var lifecycleEvent in _lifecycleEvents)
-                {
-                    lifecycleEvent.DidPopExit(args);
-                }
+                lifecycleEvent.DidExit(args);
             }
 
             gameObject.SetActive(false);
@@ -272,14 +228,14 @@ namespace ZBase.UnityScreenNavigator.Core.Panel
             TransitionAnimationProgressChanged?.Invoke(progress);
         }
 
-        private ITransitionAnimation GetAnimation(bool push, bool enter, Panel partner)
+        private ITransitionAnimation GetAnimation(bool enter, Panel partner)
         {
             var partnerIdentifier = partner == true ? partner.Identifier : string.Empty;
-            var anim = _animationContainer.GetAnimation(push, enter, partnerIdentifier);
+            var anim = _animationContainer.GetAnimation(enter, partnerIdentifier);
 
             if (anim == null)
             {
-                return Settings.GetDefaultScreenTransitionAnimation(push, enter);
+                return Settings.GetDefaultSheetTransitionAnimation(enter);
             }
 
             return anim;
